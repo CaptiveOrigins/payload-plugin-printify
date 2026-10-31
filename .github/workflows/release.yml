@@ -1,0 +1,23 @@
+# Publish to npm when a version tag (v*) is pushed.
+# npm trusted publishing (OIDC): no token is stored. The package must list this
+# repository and workflow as a trusted publisher on npmjs.com (package Settings → Trusted publishing).
+name: Release
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: read
+  id-token: write
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          registry-url: https://registry.npmjs.org
+      - run: npm ci
+      # prepublishOnly runs typecheck, tests and the build.
+      - run: npm publish --access public --provenance
