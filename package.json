@@ -1,5 +1,5 @@
 {
-  "name": "payload-plugin-printify",
+  "name": "@captiveorigins/payload-plugin-printify",
   "version": "0.2.0",
   "description": "Printify print-on-demand for Payload's ecommerce plugin: product sync, order fulfillment and tracking, optional price write-back.",
   "keywords": [

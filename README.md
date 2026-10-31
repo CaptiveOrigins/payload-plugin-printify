@@ -21,14 +21,17 @@ Connects a [Printify](https://printify.com) shop to a store built with Payload's
 - **Printify → orders.** Order and shipment webhooks update `fulfillment` on the order
   (status, carrier, tracking number and URL).
 
-Self-contained: it depends only on `payload` and Node's `crypto`; this folder can be published as
-its own package.
+Self-contained: it depends only on `payload` and Node's `crypto`.
 
 ## Install
 
+```bash
+npm install @captiveorigins/payload-plugin-printify
+```
+
 ```ts
 import { ecommercePlugin } from '@payloadcms/plugin-ecommerce'
-import { printifyPlugin } from './plugins/printify'
+import { printifyPlugin } from '@captiveorigins/payload-plugin-printify'
 
 export default buildConfig({
   plugins: [
