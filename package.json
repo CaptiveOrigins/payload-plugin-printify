@@ -1,18 +1,37 @@
 {
   "name": "payload-plugin-printify",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Printify print-on-demand for Payload's ecommerce plugin: product sync, order fulfillment and tracking, optional price write-back.",
-  "keywords": ["payload", "payload-plugin", "payloadcms", "printify", "ecommerce", "print-on-demand"],
+  "keywords": [
+    "payload",
+    "payload-plugin",
+    "payloadcms",
+    "printify",
+    "ecommerce",
+    "print-on-demand"
+  ],
   "license": "MIT",
-  "repository": { "type": "git", "url": "git+https://github.com/mgilardi/payload-plugin-printify.git" },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mgilardi/payload-plugin-printify.git"
+  },
   "type": "module",
   "exports": {
-    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" }
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "files": ["dist", "README.md", "LICENSE"],
-  "engines": { "node": ">=20.9" },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20.9"
+  },
   "scripts": {
     "build": "tsup src/index.ts --format esm --dts --clean --target node20",
     "typecheck": "tsc --noEmit",
