@@ -9,7 +9,7 @@ import type { PrintifyPluginOptions, ResolvedPrintifyOptions } from './types'
 import { pushVisibilityHook } from './visibility'
 import { webhookEndpoint } from './webhook'
 
-export type { PrintifyPluginOptions } from './types'
+export type { PrintifyPluginOptions, ResolvedPrintifyOptions } from './types'
 export { clientOf, PrintifyClient, PrintifyError } from './client'
 export type { PrintifyProduct, PrintifyShop, PrintifyOrder } from './client'
 export { mapPrintifyProduct, syncPrintifyProduct, unpublishPrintifyProduct } from './sync'
