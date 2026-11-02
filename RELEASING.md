@@ -1,5 +1,7 @@
 # Releasing
 
+One description everywhere: `package.json` (`description`, `keywords`) is the source; GitHub's description and topics are synced from it before each release, npm takes it at release, and the Release workflow refuses to stage if GitHub differs.
+
 One process for every Captive Origins package:
 
 1. Bump `version` in `package.json` (and the changelog, if any), commit as `Release x.y.z`, tag `vx.y.z`, and push the commit and the tag.

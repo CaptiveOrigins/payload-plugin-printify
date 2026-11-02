@@ -21,6 +21,12 @@ jobs:
           registry-url: https://registry.npmjs.org
       - run: npm install -g npm@^11.15.0
       - run: npm ci
+      - name: GitHub description matches package.json
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          test "$(gh api repos/${{ github.repository }} -q .description)" = "$(node -p "require('./package.json').description")" \
+            || { echo "::error::GitHub's description differs from package.json: sync it (npm run packages:sync in captive-origins) and re-tag."; exit 1; }
       - name: Tag matches package.json
         run: test "${GITHUB_REF_NAME#v}" = "$(node -p "require('./package.json').version")"
       # prepublishOnly (typecheck, tests) and prepack (build) run as for npm publish.
