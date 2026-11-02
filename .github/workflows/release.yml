@@ -1,0 +1,31 @@
+# Release: pushing a version tag (vX.Y.Z) builds, tests and *stages* the package on npm.
+# Nothing goes public until the captiveorigins npm account approves it with 2FA
+# (npmjs.com → your avatar → Staged Packages → Approve, or `npm stage approve <id>`).
+# No token is stored: npm trusted publishing (OIDC) lets only this workflow stage.
+name: Release
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: read
+  id-token: write
+jobs:
+  stage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          registry-url: https://registry.npmjs.org
+      - run: npm install -g npm@^11.15.0
+      - run: npm ci
+      - name: Tag matches package.json
+        run: test "${GITHUB_REF_NAME#v}" = "$(node -p "require('./package.json').version")"
+      # prepublishOnly (typecheck, tests) and prepack (build) run as for npm publish.
+      - name: Stage on npm
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          case "$VERSION" in *-*) TAG=next ;; *) TAG=latest ;; esac
+          npm stage publish --access public --provenance --tag "$TAG"

@@ -1,12 +1,13 @@
 # Releasing
 
-Every version is published to npm by the `captiveorigins` npm account, from a maintainer's machine, so npm lists `captiveorigins` as the publisher. Nothing publishes from CI.
+One process for every Captive Origins package:
 
-1. Bump `version` in `package.json` (and the changelog, if any), commit as `Release x.y.z`, tag `vx.y.z`, push the commit and the tag.
-2. Publish while signed in to npm as `captiveorigins` (2FA prompt):
+1. Bump `version` in `package.json` (and the changelog, if any), commit as `Release x.y.z`, tag `vx.y.z`, and push the commit and the tag.
+2. The Release workflow builds, tests and **stages** the version on npm (trusted publishing, no stored token).
+3. The `captiveorigins` npm account approves it with 2FA: npmjs.com → avatar → **Staged Packages** → **Approve**, or `npm stage list` then `npm stage approve <id>`. Only then is it public.
 
-   ```bash
-   git pull && npm publish --access public
-   ```
+The very first version of a new package is published by hand (`npm publish --access public`), because npm can only trust a workflow for a package that exists; then run once:
 
-   `prepublishOnly` runs the typecheck and tests; `prepack` builds.
+```bash
+npm trust github <package-name> --repo mgilardi/<repo> --file release.yml --allow-stage-publish --yes
+```
