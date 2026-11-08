@@ -10,6 +10,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+      - name: Leak check (emails and build output; private terms are only checked locally)
+        run: bash scripts/leak-check.sh
       - uses: actions/setup-node@v6
         with:
           node-version: 24

@@ -11,5 +11,5 @@ One process for every Captive Origins package:
 The very first version of a new package is published by hand (`npm publish --access public`), because npm can only trust a workflow for a package that exists; then run once:
 
 ```bash
-npm trust github <package-name> --repo mgilardi/<repo> --file release.yml --allow-stage-publish --yes
+npm trust github <package-name> --repo CaptiveOrigins/<repo> --file release.yml --allow-stage-publish --yes
 ```
