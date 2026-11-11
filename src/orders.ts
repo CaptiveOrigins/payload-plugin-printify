@@ -74,6 +74,24 @@ export async function sendPaidOrder(opts: ResolvedPrintifyOptions, doc: Record<s
   } catch (error) {
     return record({ status: 'held', error: (error as Error).message })
   }
+  // Claim the send in one conditional write before calling Printify: only an order with no Printify
+  // id that isn't already `unknown`. Of two saves that pay the same order at once, only one gets
+  // here; without database transactions (MongoDB that isn't a replica set, for one) both used to.
+  // Until the answer is recorded the order is `unknown`, which stays true if the process stops.
+  const claimed = await payload.db.updateOne({
+    collection: opts.collections.orders as CollectionSlug,
+    where: { and: [{ id: { equals: doc.id } }, { 'fulfillment.externalId': { exists: false } }, { 'fulfillment.status': { not_equals: UNKNOWN_OUTCOME } }] },
+    data: {
+      fulfillment: {
+        ...(doc.fulfillment ?? {}),
+        provider: 'printify',
+        status: UNKNOWN_OUTCOME,
+        error: `Sending to Printify. If this stays, the outcome is unknown: check Printify for external_id ${String(doc.id)} before sending again.`,
+      },
+    },
+    req,
+  })
+  if (!claimed) return null
   const a = (doc.shippingAddress ?? {}) as Address
   const client = clientOf(opts)
   let created: { id: string }

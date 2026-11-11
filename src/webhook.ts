@@ -4,7 +4,7 @@ import type { CollectionSlug, Endpoint, PayloadRequest } from 'payload'
 import { clientOf } from './client'
 import { fulfillmentFromPrintify, UNKNOWN_OUTCOME } from './orders'
 import { settleFromPrintify } from './settle'
-import { syncPrintifyProduct, unpublishPrintifyProduct } from './sync'
+import { storeScope, syncPrintifyProduct, unpublishPrintifyProduct } from './sync'
 import type { ResolvedPrintifyOptions } from './types'
 
 /** X-Pfy-Signature: "sha256=" + hex HMAC-SHA256 of the raw body with the shared secret. */
@@ -54,7 +54,9 @@ export const webhookEndpoint = (opts: ResolvedPrintifyOptions): Endpoint => ({
       await syncPrintifyProduct(payload, opts, tenantId, await client.product(shopId, id))
     } else if (event.type.startsWith('order:')) {
       const orders = opts.collections.orders as CollectionSlug
-      const order = (await payload.find({ collection: orders, where: { 'fulfillment.externalId': { equals: id } }, limit: 1, depth: 0 })).docs[0] as
+      // This store's orders only: another tenant's order may carry the same id in its fields.
+      const { scoped } = storeScope(payload, opts, tenantId)
+      const order = (await payload.find({ collection: orders, where: scoped({ 'fulfillment.externalId': { equals: id } }), limit: 1, depth: 0 })).docs[0] as
         | { id: string; fulfillment?: Record<string, unknown> }
         | undefined
       if (order)
@@ -66,7 +68,7 @@ export const webhookEndpoint = (opts: ResolvedPrintifyOptions): Endpoint => ({
         })
       // Not ours by Printify id. If any order's create had an unclear outcome, this may be it:
       // Printify's order carries our order id as external_id.
-      else if ((await payload.find({ collection: orders, where: { 'fulfillment.status': { equals: UNKNOWN_OUTCOME } }, limit: 1, depth: 0 })).docs.length > 0)
+      else if ((await payload.find({ collection: orders, where: scoped({ 'fulfillment.status': { equals: UNKNOWN_OUTCOME } }), limit: 1, depth: 0 })).docs.length > 0)
         await settleFromPrintify(payload, opts, tenantId, await client.order(shopId, id))
     }
     return Response.json({ received: event.id })

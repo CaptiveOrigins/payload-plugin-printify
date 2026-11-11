@@ -40,7 +40,9 @@ const store = (options: Partial<PrintifyPluginOptions> = {}, orders: Doc[] = [un
   const writes: { op: string; id: unknown; data: Doc }[] = []
   const get = (doc: Doc, path: string) => path.split('.').reduce<any>((v, k) => v?.[k], doc)
   const matches = (doc: Doc, where: any): boolean =>
-    Array.isArray(where.and) ? where.and.every((w: unknown) => matches(doc, w)) : Object.entries(where).every(([path, c]: [string, any]) => get(doc, path) === c.equals)
+    Array.isArray(where.and) ? where.and.every((w: unknown) => matches(doc, w)) : Object.entries(where).every(([path, c]: [string, any]) =>
+          'exists' in c ? (get(doc, path) != null) === c.exists : 'not_equals' in c ? get(doc, path) !== c.not_equals : get(doc, path) === c.equals,
+        )
   const tick = () => new Promise((r) => setTimeout(r, 0))
   const payload = {
     config: { custom: { printify: opts } },
@@ -182,7 +184,8 @@ describe('settling an order whose Printify create had an unclear outcome', () =>
     const lost = results.find((r) => r.status === 'rejected') as PromiseRejectedResult
     expect((lost.reason as PrintifySettleError).status).toBe(409)
     expect(s.requests.filter((r) => r.url.endsWith('/orders.json'))).toHaveLength(1)
-    expect(s.writes.filter((w) => w.op === 'db.updateOne')).toHaveLength(1)
+    // One settle claim won (status cleared), then one send claim (unknown until Printify answers).
+    expect(s.writes.filter((w) => w.op === 'db.updateOne').map((w) => w.data.fulfillment.status)).toEqual([null, 'unknown'])
   })
 
   it('lets only one of a resend and a "sent" at once win', async () => {

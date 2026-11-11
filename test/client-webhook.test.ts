@@ -88,8 +88,9 @@ const fakePayload = (opts: ResolvedPrintifyOptions, docs: Record<string, Record<
     if (Array.isArray(w.and)) return w.and.every((x) => matches(doc, x))
     return Object.entries(w).every(([path, cond]) => {
       const value = path.split('.').reduce<unknown>((v, k) => (v as Record<string, unknown> | undefined)?.[k], doc)
-      const c = cond as { equals?: unknown; exists?: boolean }
+      const c = cond as { equals?: unknown; exists?: boolean; not_equals?: unknown }
       if ('exists' in c) return (value != null) === c.exists
+      if ('not_equals' in c) return value !== c.not_equals
       // Worst case: an adapter that drops an undefined constraint matches everything.
       if (c.equals === undefined) return true
       return value === c.equals

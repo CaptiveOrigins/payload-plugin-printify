@@ -2,6 +2,73 @@
 
 Kept by this repo's owning session, per `~/Code/CLAUDE.md` "Test self-audits". Newest first.
 
+## 2026-11-11: real-database tests
+
+Suite: 50 → 74 tests in 5 files. The new file, `test/real-db.test.ts` (22 tests), runs a real Payload 3.92.1 with the official ecommerce plugin and, for tenancy, the official multi-tenant plugin. It uses an in-memory MongoDB 8.2 replica set (`mongodb-memory-server`, `ensureIndexes: true`) and requests go through `handleEndpoints`. Printify is still a fake `fetch`, and nothing reaches it. Products come in through the plugin's own sync. Orders are created through the Local API with made-up data. New dev dependencies, exact-pinned: `@payloadcms/db-mongodb`, `@payloadcms/plugin-ecommerce` and `@payloadcms/plugin-multi-tenant` at 3.92.1, and `mongodb-memory-server` 11.3.0.
+
+### Bugs found and fixed
+
+- **Duplicate paid orders without database transactions.** Payload turns transactions off on any MongoDB that isn't a replica set, for example a plain `mongodb://localhost` server. If two saves paid the same order at once, both saw it unpaid and both sent it to Printify. With a replica set, MongoDB's write conflict stopped the second save, so the bug only appeared once the test turned transactions off. Fix (`src/orders.ts`): just before the create, `sendPaidOrder` claims the send in one conditional write (`payload.db.updateOne`), and the claim only succeeds when the order has no Printify id and isn't already `unknown`. The claim marks the order `unknown`, so if the process stops mid-send, the order is left in the honest state, and settling handles it as before. If the claim fails, nothing is sent. The fakes were updated for the new write.
+- **A webhook could write one store's order data onto another store's order.** The order webhook looked up `fulfillment.externalId` across every tenant. If a store B order carried the same Printify id (that field is read-only only in the admin UI), Printify's events for store A's order went to B's order. B got A's status and tracking, and A's order stopped updating. Fix (`src/webhook.ts`): both of the webhook's order lookups are now scoped to the store tenant.
+
+### Proven on the real database
+
+| Promise | Test (`real-db.test.ts`) |
+| --- | --- |
+| A paid order is sent once with the synced Printify ids and recorded; re-saves send nothing | "sends a paid order to Printify once…" |
+| Two saves that pay an order at once send it once, with transactions (5 rounds) and without them (5 rounds, 2 or 3 saves) | "sends a paid order exactly once when two saves…race", "…two or three saves…race" |
+| An order created already paid and re-saved at the same time is sent once | "sends an order created paid exactly once…" |
+| While the create is out, the order reads `unknown` | "shows the order as unknown while the create is out…" |
+| A 5xx marks the order `unknown`, and no re-save or re-payment (including racing ones) sends it again | "marks an order unknown on a 5xx…" |
+| A 4xx marks the order `failed` | "marks an order failed on a 4xx…" |
+| Two resends at once: one 200, one 409, one create (Local API ×3 rounds, endpoint, and without transactions) | "lets exactly one of two resends at once win…" (×3) |
+| A resend racing a "sent": one wins, and the result is consistent | `lets only one of a resend and a "sent" at once win` |
+| "sent" records the id (trimmed) without calling Printify, and can't be repeated or followed by a resend | `records the Printify id for "sent"…` |
+| Signed out, customers and staff without `access.manage` get 403, with no read of Printify and no write | "refuses anyone but staff with access…" |
+| Sent, failed, unpaid, canceled and missing orders get 409; bad bodies get 400 | "refuses orders that are not unknown…" |
+| A signed order event updates only the order with that Printify id | "copies a signed order event…" |
+| An `unknown` order is settled by `external_id`, once, even with two events at once | "settles an unknown order by external_id, once" |
+| An `external_id` that isn't an unknown order, isn't an ObjectId, or is missing changes nothing | "leaves orders alone…" |
+| Unsigned, empty, wrong-secret, bare-hex and tampered-body events get 401 before any Printify call | "refuses unsigned…" |
+| Sync writes into the owning store only | "syncs into the owning store only" |
+| Store B's paid orders are never sent, even after a resend | "sends store A's paid orders, and never store B's" |
+| Webhooks settle by `external_id` only in store A, and with nothing unknown in store A they make no Printify call | "settles an unknown order by external_id only in store A" |
+| An event for store A's order never touches a store B order with the same Printify id | "copies an order event onto store A's order only…" |
+
+Two fake tests were added in `orders.test.ts`: the claim's exact condition, and "sends nothing when another save claimed the send first".
+
+Flakiness: the full suite passed 8 times in a row after one harness fix. With the multi-tenant plugin, an order create's first commands in a transaction are two relationship checks at once, and MongoDB sometimes refused the second under load ("does not match any in-progress transactions"). That's a Payload and driver quirk. The test helper creates orders with `disableTransaction: true`; paying an order, which is an update, keeps its transaction.
+
+### Mutation check
+
+16 guards were changed one at a time with a Python string replace, the full suite run, and each file restored byte for byte (hash checked). None survived:
+
+- the webhook's order lookup unscoped, which undoes the fix (1 failed, the twin-id tenancy test);
+- the webhook's unknown-order pre-check unscoped (1);
+- a lost send claim still sends (2, including the no-transactions race);
+- the claim without its `unknown` condition (2);
+- the claim without its no-Printify-id condition (1);
+- the hook's previous-status guard removed (1);
+- the hook's `unknown` guard removed (3);
+- a 5xx treated as a refusal (13);
+- a 4xx treated as unknown (4);
+- the settle claim ignores `unknown` (14);
+- a lost settle claim treated as won (6);
+- a resend of an unpaid order (2);
+- a truthy access result passes (1);
+- the webhook settle ignores the tenant (1);
+- no signature check (4);
+- another store's order sent (2).
+
+Two of these are caught only by fakes. Dropping the claim's no-Printify-id condition is caught by the test of the claim's exact `where`; on the real database it would only matter for a third save reading a stale order, which is too timing-dependent to test reliably. Dropping the hook's `unknown` guard is caught by the fake tests, because on the real database the claim's own `unknown` condition still stops the send.
+
+### Gaps skipped
+
+- Postgres and SQLite. They aren't installed here. On Postgres the send claim should hold, because a conditional `UPDATE` rechecks its `WHERE` after a row lock, but that hasn't been tested.
+- If a host's own hook throws after this plugin's hook in the same transaction, the save rolls back, along with the record of a create that Printify already received. A later payment would send the order again. This plugin can't prevent that, because it doesn't control other hooks. Noted for the lead.
+- Product sync on the real database is exercised (every test stocks products through it), but slug clashes and variant updates aren't asserted yet.
+- `settleUnknownOrder` isn't scoped by tenant. It trusts `access.manage`, and store B's orders are never sent anyway (proven above). A host that gives store-level staff `access.manage` should check the tenant itself.
+
 ## 2026-11-11: settling orders with an unknown outcome
 
 Suite: 37 → 50 tests in 4 files (`test/settle.test.ts` is new). All against a fake `fetch` and a fake Payload; nothing reaches Printify.

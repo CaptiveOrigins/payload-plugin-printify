@@ -23,9 +23,10 @@ const fakePrintify = (respond: (r: Request) => Response = () => new Response(JSO
   return { requests, fetch }
 }
 
-/** A fake Payload: variants v1 (Printify) and v-local (not Printify); records order updates and logs. */
+/** A fake Payload: variants v1 (Printify) and v-local (not Printify); records order updates, send claims and logs. */
 const fakeReq = () => {
   const updates: { id: unknown; data: { fulfillment: Record<string, unknown> }; context: unknown }[] = []
+  const claims: { where: unknown; data: { fulfillment: Record<string, unknown> } }[] = []
   const logs: unknown[] = []
   const variants: Record<string, unknown> = {
     v1: { id: 'v1', printify: { variantId: 1001 }, product: { id: 'p1', printify: { productId: 'pf-1' } } },
@@ -35,10 +36,12 @@ const fakeReq = () => {
     payload: {
       findByID: async ({ id }: { id: string }) => variants[id],
       update: async (args: (typeof updates)[number]) => void updates.push(args),
+      // The conditional write that claims the send. Its condition is proven on a real database (real-db.test.ts).
+      db: { updateOne: async (args: (typeof claims)[number]) => (claims.push(args), { id: 'ord-1' }) },
       logger: { error: (obj: unknown) => void logs.push(obj) },
     },
   }
-  return { req, updates, logs }
+  return { req, updates, claims, logs }
 }
 
 const paidOrder = (extra: Record<string, unknown> = {}) => ({
@@ -118,8 +121,29 @@ describe('orders → Printify', () => {
     expect(ours.requests).toHaveLength(1)
   })
 
+  it('claims the send, as unknown, with one conditional write before calling Printify', async () => {
+    const { claims, requests } = await run({})
+    expect(claims).toHaveLength(1)
+    expect(claims[0]!.where).toEqual({
+      and: [{ id: { equals: 'ord-1' } }, { 'fulfillment.externalId': { exists: false } }, { 'fulfillment.status': { not_equals: 'unknown' } }],
+    })
+    expect(claims[0]!.data.fulfillment).toMatchObject({ provider: 'printify', status: 'unknown' })
+    expect(requests).toHaveLength(1)
+  })
+
+  it('sends nothing when another save claimed the send first', async () => {
+    const fake = fakePrintify()
+    const r = fakeReq()
+    ;(r.req.payload as unknown as { db: { updateOne: () => Promise<null> } }).db.updateOne = async () => null
+    const hook = submitOrderHook(resolved({ apiToken: TOKEN, shopId: '123', fetch: fake.fetch }))
+    await hook({ doc: paidOrder(), previousDoc: { status: 'pending' }, operation: 'update', req: r.req, context: {} } as never)
+    expect(fake.requests).toHaveLength(0)
+    expect(r.updates).toHaveLength(0)
+  })
+
   it('holds the order when the guard blocks it, without calling Printify', async () => {
-    const { requests, updates } = await run({ beforePrintifyWrite: () => { throw new Error('staging only reads Printify') } })
+    const { requests, updates, claims } = await run({ beforePrintifyWrite: () => { throw new Error('staging only reads Printify') } })
+    expect(claims).toHaveLength(0)
     expect(requests).toHaveLength(0)
     expect(updates[0]!.data.fulfillment).toMatchObject({ provider: 'printify', status: 'held', error: 'staging only reads Printify' })
   })

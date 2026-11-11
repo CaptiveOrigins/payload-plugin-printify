@@ -17,13 +17,15 @@ Connects a [Printify](https://printify.com) shop to a store built with Payload's
   publishes/unpublishes it in Printify first (refused if Printify refuses). "Save draft" does not.
 - **Orders → Printify.** When an order becomes paid (`status: processing`), its Printify items are
   sent as a Printify order (`external_id` = your order id). Orders wait in Printify for approval
-  unless `sendToProduction: true`. The order is sent once and never retried. If Printify answers
+  unless `sendToProduction: true`. The order is sent once and never retried. Before the create goes
+  out, the order is marked `unknown` in one conditional write, so of two saves that pay the same
+  order at once only one sends it, with or without database transactions. If Printify answers
   with a server error, times out or the connection drops, it may have created the order anyway, so
-  `fulfillment.status` becomes `unknown` and the plugin won't send that order again on its own.
+  `fulfillment.status` stays `unknown` and the plugin won't send that order again on its own.
   If Printify did create it, its next order webhook settles the order by `external_id`. Otherwise
   staff settle it (see [Orders with an unknown outcome](#orders-with-an-unknown-outcome)).
 - **Printify → orders.** Order and shipment webhooks update `fulfillment` on the order
-  (status, carrier, tracking number and URL).
+  (status, carrier, tracking number and URL). In a multi-tenant setup, only the owning store's orders.
 
 Self-contained: it depends only on `payload` and Node's `crypto`.
 
@@ -139,10 +141,20 @@ or Printify is turned off here).
 - The order must still be `unknown` when the change is written: the status is part of the write's
   condition (`payload.db.updateOne` with it in `where`). Of two staff resending at once, one sends
   and the other gets a 409. This relies on the database adapter doing that conditional update in one
-  step, as MongoDB's does. It is tested against a fake, not a real database.
+  step, as MongoDB's does. It is tested on a real MongoDB (in memory), with and without
+  transactions; the SQL adapters haven't been tested.
 - `resend` goes through the same path as a paid order: the tenant check and `beforePrintifyWrite`
   still apply, and its outcome can be `unknown` again.
 - There's no button in the admin yet; the field's description points to the endpoint.
+
+## Testing
+
+`npm test` runs every test without reaching Printify: Printify is always a fake `fetch`. Most tests
+use a small fake Payload. `test/real-db.test.ts` runs a real Payload with the official ecommerce
+and multi-tenant plugins on an in-memory MongoDB replica set (`mongodb-memory-server`, which
+downloads a MongoDB binary on first run), with and without transactions. It covers the paid-order
+hook, settling, webhooks and two stores on one Payload. Nothing has been tested against Printify
+itself or on Postgres or SQLite.
 
 ## Notes
 
