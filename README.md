@@ -27,6 +27,17 @@ Connects a [Printify](https://printify.com) shop to a store built with Payload's
 
 Self-contained: it depends only on `payload` and Node's `crypto`.
 
+## On its own, and with others
+
+**On its own.** Printify needs Payload's official ecommerce plugin, listed before it, plus a Printify shop, a personal access token and a webhook secret. It doesn't use any other Captive Origins plugin.
+
+**Works with:**
+
+- **Payload ecommerce** (`@payloadcms/plugin-ecommerce`): required. Printify adds fields and hooks to its products, variants and orders.
+- **Multi-tenant stores** (for example `@payloadcms/plugin-multi-tenant`): the `tenant` option says which site owns the synced products.
+
+**Family.** Printify is in the Patronage family, with Membership, Sponsors, Backing, Credits and Roadmap, though nothing in the code links it to them yet. The families are a working draft that may change.
+
 ## Install
 
 ```bash
