@@ -60,6 +60,23 @@ describe('client', () => {
     expect((error as Error).message).not.toContain(TOKEN)
     expect(refused.calls).toHaveLength(1)
   })
+
+  it('retries a read after a 5xx', async () => {
+    const { calls, fetch } = recorder((_c, n) => (n < 3 ? new Response('busy', { status: 503, headers: { 'retry-after': '0.001' } }) : json({ id: 'o1', status: 'on-hold' })))
+    await expect(new PrintifyClient(TOKEN, fetch).order('1', 'o1')).resolves.toEqual({ id: 'o1', status: 'on-hold' })
+    expect(calls.map((c) => c.method)).toEqual(['GET', 'GET', 'GET'])
+  })
+
+  it('never retries creating an order, on a 5xx or a 429', async () => {
+    for (const status of [500, 502, 503, 504, 429]) {
+      const { calls, fetch } = recorder(() => new Response('no', { status, headers: { 'retry-after': '0.001' } }))
+      const error = await new PrintifyClient(TOKEN, fetch)
+        .createOrder('1', { external_id: 'ord-1', line_items: [], shipping_method: 1, send_shipping_notification: false, address_to: { first_name: 'Sam', last_name: 'Sample', country: 'US', address1: '1 Test Way', city: 'Testville', zip: '85000' } })
+        .catch((e: unknown) => e)
+      expect((error as PrintifyError).status).toBe(status)
+      expect(calls).toHaveLength(1)
+    }
+  })
 })
 
 /** A small in-memory Payload for the webhook and sync paths. */

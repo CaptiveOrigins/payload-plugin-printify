@@ -1,8 +1,10 @@
 /**
  * Minimal Printify REST client (https://developers.printify.com, API v1).
  * Server-side only (the API has no CORS). Personal access token from
- * PRINTIFY_API_TOKEN; never logged. Retries 429/5xx a few times with backoff
- * (limit: 600 requests/minute per account).
+ * PRINTIFY_API_TOKEN; never logged. Retries 429 a few times with backoff
+ * (limit: 600 requests/minute per account), and 5xx only for reads. Creating an
+ * order is never retried: a 5xx or timeout may come after Printify created it,
+ * and a retry would create a second paid order.
  */
 const BASE = 'https://api.printify.com/v1'
 const USER_AGENT = 'payload-plugin-printify'
@@ -68,6 +70,15 @@ export type PrintifyOrder = {
 
 type Fetch = typeof fetch
 
+/** Methods that are safe to repeat after a 5xx: they don't create anything. */
+const RETRY_5XX = new Set(['GET', 'HEAD'])
+
+/**
+ * Whether a failed create may have happened anyway: a 5xx, a timeout, a network
+ * error or an unreadable answer. Only a 4xx or 429 means Printify refused it.
+ */
+export const outcomeUnknown = (error: unknown) => !(error instanceof PrintifyError) || error.status >= 500
+
 export class PrintifyClient {
   constructor(
     private readonly token: string,
@@ -75,7 +86,7 @@ export class PrintifyClient {
     private readonly userAgent: string = USER_AGENT,
   ) {}
 
-  async request<T>(method: string, path: string, body?: unknown, attempt = 0): Promise<T> {
+  async request<T>(method: string, path: string, body?: unknown, attempt = 0, retry = true): Promise<T> {
     const res = await this.fetchImpl(`${BASE}${path}`, {
       method,
       headers: {
@@ -86,7 +97,7 @@ export class PrintifyClient {
       body: body === undefined ? undefined : JSON.stringify(body),
       signal: AbortSignal.timeout(20_000),
     })
-    if ((res.status === 429 || res.status >= 500) && attempt < 3) {
+    if (retry && (res.status === 429 || (res.status >= 500 && RETRY_5XX.has(method))) && attempt < 3) {
       const wait = Number(res.headers.get('retry-after')) * 1000 || 1000 * 2 ** attempt
       await new Promise((r) => setTimeout(r, wait))
       return this.request(method, path, body, attempt + 1)
@@ -142,6 +153,12 @@ export class PrintifyClient {
   publishingFailed = (shopId: number | string, id: string, reason: string) =>
     this.request('POST', `/shops/${shopId}/products/${id}/publishing_failed.json`, { reason })
 
+  /**
+   * Create an order. Sent once, never retried (not even on 429): if it fails with
+   * `outcomeUnknown(error)`, check Printify for `external_id` before sending again.
+   * Printify's docs in this repo say nothing on whether a repeated `external_id`
+   * is refused, so nothing here relies on it.
+   */
   createOrder = (
     shopId: number | string,
     order: {
@@ -152,7 +169,7 @@ export class PrintifyClient {
       send_shipping_notification: boolean
       address_to: PrintifyAddress
     },
-  ) => this.request<{ id: string }>('POST', `/shops/${shopId}/orders.json`, order)
+  ) => this.request<{ id: string }>('POST', `/shops/${shopId}/orders.json`, order, 0, false)
 
   order = (shopId: number | string, id: string) =>
     this.request<PrintifyOrder>('GET', `/shops/${shopId}/orders/${id}.json`)

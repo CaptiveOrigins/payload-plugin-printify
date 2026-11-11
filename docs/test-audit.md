@@ -2,6 +2,24 @@
 
 Kept by this repo's owning session, per `~/Code/CLAUDE.md` "Test self-audits". Newest first.
 
+## 2026-11-10: the lead's fixes after the first audit
+
+Suite: 30 → 37 tests in 3 files. All against a fake `fetch` and a fake Payload; nothing reaches Printify.
+
+**Fixed: possible duplicate paid orders.** The client retried every 5xx, including `POST /orders.json`, so a 502 sent after Printify had created the order made a second one.
+
+- The client now retries server errors only for reads (`GET`, `HEAD`). Creating an order is never retried, not even on 429.
+- A create that fails with a 5xx, a timeout, a network error or an unreadable answer is recorded as `fulfillment.status: 'unknown'`, with "Outcome unknown, check Printify before sending again" and the order id. The paid-order hook skips any order in that state, so nothing sends it again until someone clears it.
+- A 4xx is still `failed`: Printify refused it, so nothing was created.
+- Found on the way: if sending to production failed after the order was created, the Printify id was dropped. It is now kept, so the order can't be created twice.
+- Idempotency: the order id was already sent as `external_id`. Nothing in this repo documents whether Printify refuses a repeated `external_id`, so the fix relies only on not retrying.
+
+Tests: "never retries creating an order, on a 5xx or a 429", "retries a read after a 5xx" (`client-webhook.test.ts`); "sends a 5xx / timeout / network error create once, marks it unknown, and never resends it", "still records a refused create (4xx) as failed", "keeps the Printify id when … sending to production failed" (`orders.test.ts`).
+
+Mutation check: putting back the old retry condition fails 3 tests; removing the hook's `unknown` guard fails 3; treating every error as a refusal fails 3. Each file was restored byte for byte.
+
+Still open: `fulfillment.status` is read-only in the admin, so clearing an `unknown` order takes the Local API or a database edit. The order webhook matches only `fulfillment.externalId`, so it can't settle an `unknown` order by `external_id` on its own.
+
 ## 2026-11-10: first audit
 
 Suite before: 11 tests in 1 file. After: 30 tests in 3 files. Every test uses a fake `fetch` and, where Payload is needed, a small in-memory fake. Nothing reaches Printify.

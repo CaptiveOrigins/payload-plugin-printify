@@ -135,4 +135,54 @@ describe('orders → Printify', () => {
     expect(String(r.updates[0]!.data.fulfillment.error)).not.toContain(TOKEN)
     expect(r.logs).toEqual([{ order: 'ord-1' }])
   })
+
+  describe('a create whose outcome is unknown', () => {
+    // Printify may have created the order before the 5xx, timeout or dropped connection.
+    const failing = {
+      '5xx': () => new Response('bad gateway', { status: 502 }),
+      timeout: () => { throw new DOMException('The operation was aborted due to timeout', 'TimeoutError') },
+      'network error': () => { throw new TypeError('fetch failed') },
+    }
+    for (const [name, respond] of Object.entries(failing)) {
+      it(`sends a ${name} create once, marks it unknown, and never resends it`, async () => {
+        const fake = fakePrintify(respond)
+        const r = fakeReq()
+        const hook = submitOrderHook(resolved({ apiToken: TOKEN, shopId: '123', fetch: fake.fetch, sendToProduction: true }))
+        const doc = paidOrder()
+        await expect(hook({ doc, previousDoc: { status: 'pending' }, operation: 'update', req: r.req, context: {} } as never)).resolves.toBe(doc)
+        expect(fake.requests.map((q) => `${q.method} ${q.url}`)).toEqual(['POST https://api.printify.com/v1/shops/123/orders.json'])
+        expect(r.updates).toHaveLength(1)
+        const fulfillment = r.updates[0]!.data.fulfillment
+        expect(fulfillment).toMatchObject({ provider: 'printify', status: 'unknown' })
+        expect(fulfillment.externalId).toBeUndefined()
+        expect(String(fulfillment.error)).toContain('Outcome unknown, check Printify before sending again')
+        expect(String(fulfillment.error)).toContain('ord-1')
+        expect(String(fulfillment.error)).not.toContain(TOKEN)
+
+        // The next hook runs (re-saved, or set back to paid) send nothing.
+        const saved = { ...doc, fulfillment }
+        for (const previousDoc of [{ status: 'processing' }, { status: 'pending' }]) {
+          await hook({ doc: saved, previousDoc, operation: 'update', req: r.req, context: {} } as never)
+        }
+        expect(fake.requests).toHaveLength(1)
+        expect(r.updates).toHaveLength(1)
+      })
+    }
+
+    it('still records a refused create (4xx) as failed, not unknown', async () => {
+      const fake = fakePrintify(() => new Response('{"error":"bad address"}', { status: 422 }))
+      const r = fakeReq()
+      await submitOrderHook(resolved({ apiToken: TOKEN, shopId: '123', fetch: fake.fetch }))({ doc: paidOrder(), previousDoc: { status: 'pending' }, operation: 'update', req: r.req, context: {} } as never)
+      expect(fake.requests).toHaveLength(1)
+      expect(r.updates[0]!.data.fulfillment.status).toBe('failed')
+    })
+
+    it('keeps the Printify id when the order was created but sending to production failed', async () => {
+      const fake = fakePrintify((q) => (q.url.endsWith('/orders.json') ? new Response(JSON.stringify({ id: 'pf-order-9' }), { status: 200 }) : new Response('down', { status: 503 })))
+      const r = fakeReq()
+      await submitOrderHook(resolved({ apiToken: TOKEN, shopId: '123', fetch: fake.fetch, sendToProduction: true }))({ doc: paidOrder(), previousDoc: { status: 'pending' }, operation: 'update', req: r.req, context: {} } as never)
+      expect(fake.requests).toHaveLength(2)
+      expect(r.updates[0]!.data.fulfillment).toMatchObject({ externalId: 'pf-order-9', status: 'failed' })
+    })
+  })
 })
