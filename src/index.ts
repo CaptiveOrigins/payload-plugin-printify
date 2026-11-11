@@ -4,6 +4,7 @@ import { clientOf, PrintifyClient } from './client'
 import { orderFulfillmentField, productContentFields, productPrintifyField, variantPrintifyField } from './fields'
 import { submitOrderHook } from './orders'
 import { productFromPriceHook, pushVariantPriceHook } from './prices'
+import { settleEndpoint } from './settle'
 import { storeScope, syncPrintifyProduct, unpublishPrintifyProduct } from './sync'
 import type { PrintifyPluginOptions, ResolvedPrintifyOptions } from './types'
 import { pushVisibilityHook } from './visibility'
@@ -14,6 +15,8 @@ export { clientOf, PrintifyClient, PrintifyError } from './client'
 export type { PrintifyProduct, PrintifyShop, PrintifyOrder } from './client'
 export { mapPrintifyProduct, syncPrintifyProduct, unpublishPrintifyProduct } from './sync'
 export { validPrintifySignature } from './webhook'
+export { PrintifySettleError, settleUnknownOrder } from './settle'
+export type { SettleOutcome } from './settle'
 
 /** Webhook topics the plugin handles. */
 export const PRINTIFY_TOPICS = [
@@ -86,7 +89,7 @@ export const printifyPlugin =
     return {
       ...config,
       collections: (config.collections ?? []).map(extend),
-      endpoints: [...(config.endpoints ?? []), webhookEndpoint(opts)],
+      endpoints: [...(config.endpoints ?? []), webhookEndpoint(opts), settleEndpoint()],
       custom: { ...config.custom, printify: opts },
     }
   }

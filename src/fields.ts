@@ -60,7 +60,14 @@ export const orderFulfillmentField: Field = {
   fields: [
     { name: 'provider', type: 'select', options: ['printify', 'manual'].map((v) => ({ label: v[0]!.toUpperCase() + v.slice(1), value: v })) },
     { name: 'externalId', type: 'text', index: true, admin: { ...ro, description: 'Printify order ID.' } },
-    { name: 'status', type: 'text', admin: ro },
+    {
+      name: 'status',
+      type: 'text',
+      admin: {
+        ...ro,
+        description: '"unknown": the create may or may not have reached Printify. Look for this order id in Printify, then settle it (POST /api/printify/orders/<id>/settle).',
+      },
+    },
     { name: 'error', type: 'textarea', admin: ro },
     { name: 'submittedAt', type: 'date', admin: ro },
     {

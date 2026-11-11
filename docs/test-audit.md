@@ -2,6 +2,44 @@
 
 Kept by this repo's owning session, per `~/Code/CLAUDE.md` "Test self-audits". Newest first.
 
+## 2026-11-11: settling orders with an unknown outcome
+
+Suite: 37 → 50 tests in 4 files (`test/settle.test.ts` is new). All against a fake `fetch` and a fake Payload; nothing reaches Printify.
+
+**Closed: the two items left open on 2026-11-10.** An `unknown` order could only be cleared with the Local API or a database edit, and the order webhook couldn't settle one by `external_id`.
+
+- `settleUnknownOrder(payload, { order, outcome: 'sent' | 'resend', printifyId?, req })`, also as `POST /api/printify/orders/:id/settle`. `'sent'` records the Printify id with status `submitted`; `'resend'` clears the unknown state and sends the order once, through the same code as the paid-order hook (now `sendPaidOrder`).
+- New option `access.manage`. Only an exact `true` passes; a query, a truthy value, an error or no option at all is a refusal.
+- The claim is a conditional write: `payload.db.updateOne` with `fulfillment.status: 'unknown'` in `where`, so of two callers one wins. `'resend'` also requires the order to still be paid (`status: processing`) and Printify to be on.
+- A signed order event that doesn't match an order by Printify id now settles an `unknown` order whose id is the Printify order's `external_id` (in this store only). It looks for an `unknown` order first, so other events cost no Printify call.
+- Schema: none. Only the admin description of `fulfillment.status` changed.
+
+### Promises and the tests that prove them
+
+| Promise | Test |
+| --- | --- |
+| Only exact `true` from `access.manage` may settle: wrong role, signed out, no option, a query, truthy values and a throwing check are refused before any read or write | `settle.test.ts` "refuses anyone the manage access does not answer exactly true for…" |
+| Orders that aren't `unknown` (failed, sent, held, none) or don't exist are refused | "refuses orders that are not unknown, and missing orders" |
+| `'sent'` needs a Printify id (blank refused); a wrong outcome is refused | `refuses "sent" without the Printify order id…` |
+| No resend for an order no longer paid, or with Printify off | "refuses to resend an order that is no longer paid…" |
+| `'sent'` records the id, calls nothing, and can't be done twice | `"sent" records the Printify id as submitted…` |
+| `'resend'` sends exactly once; neither staff nor the hook sends it again | `"resend" sends the order exactly once…` |
+| Two resends at once: one winner, one Printify create | "lets only one of two resends at once win" |
+| A resend and a `'sent'` at once: one winner | `lets only one of a resend and a "sent" at once win` |
+| The endpoint answers 403, 400 (incl. a body that isn't JSON), 409 and 200 | "answers over the endpoint…" |
+| A signed order event settles the `unknown` order named by `external_id` | `client-webhook.test.ts` "is settled by a signed order event…" |
+| Unsigned events, another order's `external_id`, no `external_id`, and orders that aren't `unknown` are left alone | "is left alone when…" |
+| Only this store's order is settled | "is settled only in its own store" |
+| No extra Printify call when nothing is `unknown` | "costs no Printify call when no order is unknown" |
+
+Mutation check, 15 guards, each changed with a Python string replace and restored byte for byte (hash checked): truthy access passes (1 test failed), no `access.manage` allows (1), a throwing access check allows (1), outcome validation removed (1), `printifyId` requirement removed (2), resend with Printify off (1), resend of an unpaid order (1), claim ignores the `unknown` status (6), write not conditional (2), lost claim treated as won (2), webhook ignores the tenant (1), webhook without `external_id` (1), webhook always fetches (1), webhook doesn't settle (2), the hook's `unknown` guard removed (3). None survived.
+
+### Gaps skipped
+
+- A real database. The race is proven against a fake whose conditional write is one step. MongoDB's adapter does `findOneAndUpdate` with the full `where`, which is atomic; the SQL adapters weren't checked (not installed here). The `external_id` test's fake treats an undefined constraint as matching everything, the worst case, so the guard against it is tested.
+- An admin button. The endpoint is the admin's way in for now.
+- Checking that a `'sent'` Printify id exists in Printify, or isn't on another order: staff just looked it up, and the next order webhook overwrites the status.
+
 ## 2026-11-10: the lead's fixes after the first audit
 
 Suite: 30 → 37 tests in 3 files. All against a fake `fetch` and a fake Payload; nothing reaches Printify.

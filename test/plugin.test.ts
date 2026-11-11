@@ -82,7 +82,7 @@ describe('webhooks', () => {
 })
 
 describe('config', () => {
-  it('adds the Printify fields, hooks and webhook endpoint', () => {
+  it('adds the Printify fields, hooks, webhook endpoint and settle endpoint', () => {
     const config = configure({ apiToken: 't', shopId: '1' })
     const bySlug = Object.fromEntries((config.collections ?? []).map((c) => [c.slug, c]))
     const names = (slug: string) => bySlug[slug]!.fields.map((f) => ('name' in f ? f.name : null))
@@ -93,7 +93,7 @@ describe('config', () => {
     expect(bySlug.variants!.hooks?.beforeChange).toHaveLength(1)
     expect(bySlug.products!.hooks?.beforeChange).toHaveLength(1)
     expect(bySlug.orders!.hooks?.afterChange).toHaveLength(1)
-    expect(config.endpoints?.map((e) => e.path)).toEqual(['/printify/webhook'])
+    expect(config.endpoints?.map((e) => `${e.method} ${e.path}`)).toEqual(['post /printify/webhook', 'post /printify/orders/:id/settle'])
     expect(config.custom.printify).toMatchObject({ enabled: true, pushPrices: false, pushVisibility: false, publishHandshake: false, currency: 'USD' })
   })
 

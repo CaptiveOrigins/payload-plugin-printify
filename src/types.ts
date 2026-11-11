@@ -1,4 +1,4 @@
-import type { Payload, PayloadRequest } from 'payload'
+import type { Access, Payload, PayloadRequest } from 'payload'
 
 export type PrintifyPluginOptions = {
   /** Turn the integration off without removing the plugin (fields stay). Default: on when apiToken and shopId are set. */
@@ -49,6 +49,13 @@ export type PrintifyPluginOptions = {
    * blocked price or visibility change is refused. Use it to keep staging/test copies away from a real shop.
    */
   beforePrintifyWrite?: (args: { action: 'order' | 'price' | 'visibility'; doc: Record<string, unknown>; req: PayloadRequest }) => void | Promise<void>
+  /**
+   * Who may do staff actions, such as settling an order whose Printify create had an unclear
+   * outcome (`settleUnknownOrder`). A plain Payload access function, but only a result of exactly
+   * `true` passes: a query, a truthy value or an error is a no. Default: nobody, so set it
+   * (for example `({ req }) => req.user?.roles?.includes('admin') === true`).
+   */
+  access?: { manage?: Access }
   /** Public URL of a product page, reported to Printify after publishing. */
   productURL?: (product: { id: string; slug: string }) => string
   /** Endpoint path under /api (default /printify/webhook). */

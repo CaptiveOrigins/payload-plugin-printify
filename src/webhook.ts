@@ -2,7 +2,8 @@ import { createHmac, timingSafeEqual } from 'node:crypto'
 import type { CollectionSlug, Endpoint, PayloadRequest } from 'payload'
 
 import { clientOf } from './client'
-import { fulfillmentFromPrintify } from './orders'
+import { fulfillmentFromPrintify, UNKNOWN_OUTCOME } from './orders'
+import { settleFromPrintify } from './settle'
 import { syncPrintifyProduct, unpublishPrintifyProduct } from './sync'
 import type { ResolvedPrintifyOptions } from './types'
 
@@ -19,7 +20,8 @@ type Event = { id: string; type: string; resource: { id: string; type: string; d
 /**
  * Printify product and order events. Unsigned or wrongly signed requests are
  * rejected. Products sync into the store; order events refresh fulfillment
- * status and tracking.
+ * status and tracking, and settle an order whose create had an unclear outcome
+ * when Printify's order carries its id as `external_id`.
  */
 export const webhookEndpoint = (opts: ResolvedPrintifyOptions): Endpoint => ({
   path: opts.webhookPath,
@@ -62,6 +64,10 @@ export const webhookEndpoint = (opts: ResolvedPrintifyOptions): Endpoint => ({
           data: { fulfillment: { ...order.fulfillment, ...fulfillmentFromPrintify(await client.order(shopId, id)) } } as never,
           context: { printify: true },
         })
+      // Not ours by Printify id. If any order's create had an unclear outcome, this may be it:
+      // Printify's order carries our order id as external_id.
+      else if ((await payload.find({ collection: orders, where: { 'fulfillment.status': { equals: UNKNOWN_OUTCOME } }, limit: 1, depth: 0 })).docs.length > 0)
+        await settleFromPrintify(payload, opts, tenantId, await client.order(shopId, id))
     }
     return Response.json({ received: event.id })
   },

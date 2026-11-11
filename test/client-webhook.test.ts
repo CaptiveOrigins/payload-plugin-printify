@@ -90,6 +90,8 @@ const fakePayload = (opts: ResolvedPrintifyOptions, docs: Record<string, Record<
       const value = path.split('.').reduce<unknown>((v, k) => (v as Record<string, unknown> | undefined)?.[k], doc)
       const c = cond as { equals?: unknown; exists?: boolean }
       if ('exists' in c) return (value != null) === c.exists
+      // Worst case: an adapter that drops an undefined constraint matches everything.
+      if (c.equals === undefined) return true
       return value === c.equals
     })
   }
@@ -106,6 +108,17 @@ const fakePayload = (opts: ResolvedPrintifyOptions, docs: Record<string, Record<
       writes.push({ op: 'update', collection, id, data })
       return { id, ...data }
     },
+    db: {
+      // A conditional write: only a document matching `where` is changed.
+      updateOne: async ({ collection, where, data }: { collection: string; where: unknown; data: Record<string, unknown> }) => {
+        const doc = (docs[collection] ?? []).find((d) => matches(d, where))
+        if (!doc) return null
+        Object.assign(doc, data)
+        writes.push({ op: 'db.updateOne', collection, id: doc.id, data })
+        return doc
+      },
+    },
+    logger: { info: () => {}, error: () => {} },
   }
   return { payload, writes }
 }
@@ -155,6 +168,74 @@ describe('webhook', () => {
     store.writes.length = 0
     await signed({ id: 'e3', type: 'order:updated', resource: { id: 'pf-order-unknown', type: 'order' } }, opts, store.payload)
     expect(store.writes).toHaveLength(0)
+  })
+
+  describe('an order whose create had an unclear outcome', () => {
+    const unknown = (extra: Record<string, unknown> = {}) => ({
+      id: 'ord-1',
+      status: 'processing',
+      tenant: 't1',
+      fulfillment: { provider: 'printify', status: 'unknown', error: 'Outcome unknown, check Printify before sending again (external_id ord-1). 502' },
+      ...extra,
+    })
+    const printifyOrder = (extra: Record<string, unknown> = {}) => json({ id: 'pf-order-9', external_id: 'ord-1', status: 'on-hold', shipments: [], ...extra })
+
+    it('is settled by a signed order event whose external_id is its id', async () => {
+      const api = recorder(() => printifyOrder())
+      const opts = resolved({ apiToken: TOKEN, shopId: '1', webhookSecret: SECRET, fetch: api.fetch })
+      const store = fakePayload(opts, { orders: [unknown()] })
+      const res = await signed({ id: 'e6', type: 'order:created', resource: { id: 'pf-order-9', type: 'order' } }, opts, store.payload)
+      expect(res.status).toBe(200)
+      expect(api.calls.map((c) => `${c.method} ${c.url}`)).toEqual(['GET https://api.printify.com/v1/shops/1/orders/pf-order-9.json'])
+      expect(store.writes).toHaveLength(1)
+      expect(store.writes[0]).toMatchObject({ op: 'db.updateOne', collection: 'orders', id: 'ord-1' })
+      expect(store.writes[0]!.data.fulfillment).toMatchObject({ provider: 'printify', externalId: 'pf-order-9', status: 'on-hold', error: null, shipments: [] })
+      expect(typeof (store.writes[0]!.data.fulfillment as Record<string, unknown>).submittedAt).toBe('string')
+    })
+
+    it('is left alone when the event is unsigned, for another order, or for an order that is not unknown', async () => {
+      const api = recorder(() => printifyOrder())
+      const opts = resolved({ apiToken: TOKEN, shopId: '1', webhookSecret: SECRET, fetch: api.fetch })
+      const event = { id: 'e7', type: 'order:updated', resource: { id: 'pf-order-9', type: 'order' } }
+
+      const forged = fakePayload(opts, { orders: [unknown()] })
+      expect((await signed(event, opts, forged.payload, 'wrong-secret')).status).toBe(401)
+      expect(forged.writes).toHaveLength(0)
+
+      // Printify's order belongs to some other order of ours, or to none (no external_id).
+      for (const external_id of ['ord-2', undefined]) {
+        const elsewhere = resolved({ apiToken: TOKEN, shopId: '1', webhookSecret: SECRET, fetch: recorder(() => printifyOrder({ external_id })).fetch })
+        const other = fakePayload(elsewhere, { orders: [unknown()] })
+        await signed(event, elsewhere, other.payload)
+        expect(other.writes).toHaveLength(0)
+      }
+
+      for (const status of ['failed', 'held', 'on-hold']) {
+        const settled = fakePayload(opts, { orders: [unknown({ fulfillment: { provider: 'printify', status } })] })
+        await signed(event, opts, settled.payload)
+        expect(settled.writes).toHaveLength(0)
+      }
+    })
+
+    it('is settled only in its own store', async () => {
+      const api = recorder(() => printifyOrder())
+      const theirs = resolved({ apiToken: TOKEN, shopId: '1', webhookSecret: SECRET, fetch: api.fetch, tenant: { resolve: async () => 't2' } })
+      const store = fakePayload(theirs, { orders: [unknown()] })
+      await signed({ id: 'e8', type: 'order:created', resource: { id: 'pf-order-9', type: 'order' } }, theirs, store.payload)
+      expect(store.writes).toHaveLength(0)
+      const ours = resolved({ apiToken: TOKEN, shopId: '1', webhookSecret: SECRET, fetch: api.fetch, tenant: { resolve: async () => 't1' } })
+      await signed({ id: 'e9', type: 'order:created', resource: { id: 'pf-order-9', type: 'order' } }, ours, store.payload)
+      expect(store.writes).toHaveLength(1)
+    })
+
+    it('costs no Printify call when no order is unknown', async () => {
+      const api = recorder(() => printifyOrder())
+      const opts = resolved({ apiToken: TOKEN, shopId: '1', webhookSecret: SECRET, fetch: api.fetch })
+      const store = fakePayload(opts, { orders: [unknown({ fulfillment: { provider: 'printify', status: 'failed' } })] })
+      await signed({ id: 'e10', type: 'order:updated', resource: { id: 'pf-order-elsewhere', type: 'order' } }, opts, store.payload)
+      expect(api.calls).toHaveLength(0)
+      expect(store.writes).toHaveLength(0)
+    })
   })
 
   it('turns a product deleted in Printify into a draft, keeping it for order history', async () => {
