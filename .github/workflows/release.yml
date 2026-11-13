@@ -1,5 +1,5 @@
 # Release: pushing a version tag (vX.Y.Z) builds, tests and *stages* the package on npm.
-# Nothing goes public until the captiveorigins npm account approves it with 2FA
+# Nothing goes public until the npm account that owns the extantape org approves it with 2FA
 # (npmjs.com → your avatar → Staged Packages → Approve, or `npm stage approve <id>`).
 # No token is stored: npm trusted publishing (OIDC) lets only this workflow stage.
 name: Release
@@ -26,7 +26,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           test "$(gh api repos/${{ github.repository }} -q .description)" = "$(node -p "require('./package.json').description")" \
-            || { echo "::error::GitHub's description differs from package.json: sync it (npm run packages:sync in captive-origins) and re-tag."; exit 1; }
+            || { echo "::error::GitHub's description differs from package.json: set it with gh repo edit --description from package.json, then re-tag."; exit 1; }
       - name: Tag matches package.json
         run: test "${GITHUB_REF_NAME#v}" = "$(node -p "require('./package.json').version")"
       # prepublishOnly (typecheck, tests) and prepack (build) run as for npm publish.

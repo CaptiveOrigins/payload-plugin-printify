@@ -43,12 +43,12 @@ Self-contained: it depends only on `payload` and Node's `crypto`.
 ## Install
 
 ```bash
-npm install @captiveorigins/payload-plugin-printify
+npm install @extantape/payload-plugin-printify
 ```
 
 ```ts
 import { ecommercePlugin } from '@payloadcms/plugin-ecommerce'
-import { printifyPlugin } from '@captiveorigins/payload-plugin-printify'
+import { printifyPlugin } from '@extantape/payload-plugin-printify'
 
 export default buildConfig({
   plugins: [
@@ -115,7 +115,7 @@ order is `unknown`, so other order events cost no extra Printify call.
 then:
 
 ```ts
-import { settleUnknownOrder } from '@captiveorigins/payload-plugin-printify'
+import { settleUnknownOrder } from '@extantape/payload-plugin-printify'
 
 // It's in Printify: record its id. Status becomes `submitted` until Printify's next webhook.
 await settleUnknownOrder(payload, { order: orderId, outcome: 'sent', printifyId: 'Printify order id', req })
