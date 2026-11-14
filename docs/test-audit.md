@@ -1,6 +1,6 @@
 # Test audit
 
-Kept by this repo's owning session, per `~/Code/CLAUDE.md` "Test self-audits". Newest first.
+Newest first.
 
 ## 2026-11-11: real-database tests
 
