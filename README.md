@@ -31,7 +31,7 @@ Self-contained: it depends only on `payload` and Node's `crypto`.
 
 ## On its own, and with others
 
-**On its own.** Printify needs Payload's official ecommerce plugin, listed before it, plus a Printify shop, a personal access token and a webhook secret. It doesn't use any other Captive Origins plugin.
+**On its own.** Printify needs Payload's official ecommerce plugin, listed before it, plus a Printify shop, a personal access token and a webhook secret. It doesn't use any other plugin.
 
 **Works with:**
 
